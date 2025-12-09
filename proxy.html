@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>CORS Proxy for Nvidia API</title>
+</head>
+
+<body>
+    <script>
+        window.addEventListener('message', async (event) => {
+            const { url, options, id } = event.data;
+
+            try {
+                const response = await fetch(url, options);
+                const data = await response.json();
+
+                event.source.postMessage({
+                    id: id,
+                    success: true,
+                    data: data
+                }, '*');
+            } catch (error) {
+                event.source.postMessage({
+                    id: id,
+                    success: false,
+                    error: error.message
+                }, '*');
+            }
+        });
+    </script>
+</body>
+
+</html>
