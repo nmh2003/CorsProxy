@@ -1,33 +1,96 @@
 <!DOCTYPE html>
 <html>
-
 <head>
-    <title>CORS Proxy for Nvidia API</title>
+    <meta charset="utf-8">
+    <title>CORS Proxy</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background: #f4f4f4; }
+        pre { background: white; padding: 15px; border-radius: 8px; }
+    </style>
 </head>
-
 <body>
+    <h1>CORS Proxy đang chạy</h1>
+    <p>Dùng trong iframe hoặc window.open từ domain khác để bypass CORS.</p>
+    <pre id="log"></pre>
+
     <script>
+        // 1. Chỉ chấp nhận message từ các origin khác (không phải chính nó)
+        const myOrigin = location.origin;
+
+        // 2. Chỉ xử lý message đúng format + có url hợp lệ
         window.addEventListener('message', async (event) => {
-            const { url, options, id } = event.data;
+            // Bỏ qua message từ chính trang này (tránh vòng lặp)
+            if (event.origin === myOrigin) return;
+
+            // Cho phép mọi origin khác (đúng mục đích proxy)
+            // Nếu muốn giới hạn thì thêm danh sách trắng ở đây
+
+            const data = event.data;
+
+            // Kiểm tra format nghiêm ngặt
+            if (!data || typeof data !== 'object') return;
+            if (!data.type || data.type !== 'CORS_REQUEST') return;
+            if (!data.url || typeof data.url !== 'string') return;
+            if (!data.id) return;
+
+            const { url, options = {}, id } = data;
 
             try {
-                const response = await fetch(url, options);
-                const data = await response.json();
+                const response = await fetch(url, {
+                    ...options,
+                    mode: 'cors',       // quan trọng: vẫn dùng cors để fetch được
+                    credentials: 'omit' // tránh cookie không cần thiết
+                });
+
+                let result;
+                const contentType = response.headers.get('content-type') || '';
+
+                if (contentType.includes('application/json')) {
+                    result = await response.json();
+                } else if (contentType.includes('text/')) {
+                    result = await response.text();
+                } else {
+                    // fallback: arrayBuffer rồi chuyển base64 (cho binary)
+                    const blob = await response.blob();
+                    result = await blobToBase64(blob);
+                }
 
                 event.source.postMessage({
+                    type: 'CORS_RESPONSE',
                     id: id,
                     success: true,
-                    data: data
-                }, '*');
+                    data: result,
+                    status: response.status,
+                    headers: Object.fromEntries(response.headers.entries())
+                }, event.origin);
+
             } catch (error) {
                 event.source.postMessage({
+                    type: 'CORS_RESPONSE',
                     id: id,
                     success: false,
                     error: error.message
-                }, '*');
+                }, event.origin);
             }
         });
+
+        // Helper chuyển blob → base64
+        function blobToBase64(blob) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
+        }
+
+        // Log để debug
+        const log = document.getElementById('log');
+        const origPostMessage = window.postMessage;
+        window.postMessage = function(...args) {
+            log.textContent += '← ' + JSON.stringify(args[0]) + '\n';
+            return origPostMessage.apply(this, args);
+        };
     </script>
 </body>
-
 </html>
